@@ -1,2 +1,2 @@
-# intelehealth-path-patient-module
-Repository for Path Patient Module
+# intelehealth-fhir-patient-module
+Repository for FHIR Patient Module
