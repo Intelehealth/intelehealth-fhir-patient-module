@@ -33,4 +33,4 @@ step-3:
 
 ## browse
 
-        http://host-ip:7002 
+        http://host-ip:5001
