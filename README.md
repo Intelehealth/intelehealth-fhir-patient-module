@@ -25,7 +25,7 @@ step-1: Clone the code
 
 step-2: Enter to root folder
 
-        cd intelehealth-fhir-openmrs-external-fhir-system
+        cd intelehealth-fhir-patient-module
         
 step-3: Edit src/main/resources/application.properties
 
