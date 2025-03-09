@@ -10,8 +10,10 @@ public abstract class IHConstant {
 	@Value("${resource.location.export}")
 	protected String exportLocation;
 
-	@Value("${resource.patient.export}")
-	protected String exportPatient;
+	@Value("${resource.patient_created.export}")
+	protected String exportCreatedPatient;
+	@Value("${resource.patient_modified.export}")
+	protected String exportModifiedPatient;
 	@Value("${resource.practitioner.export}")
 	protected String exportPractitioner;
 	@Value("${resource.encounter.export}")
@@ -48,5 +50,11 @@ public abstract class IHConstant {
 
 	@Value("${opencr.shr.url}")
 	protected String shrUrl;
+	
+	@Value("${structuredefinition.extension.url}")
+	protected String sdExtensionURL;
+	
+	@Value("${central.fhir.url}")
+	protected String centralFhirURL;
 
 }

@@ -25,7 +25,10 @@ public class DateUtils {
 	}
 	
 	
-	public static void main(String[] args) {
+	public static void main(String[] args) throws ParseException {
 		System.out.println(toFormattedDateNow("yyyy-MM-dd HH:mm:ss"));
+		System.out.println(strToDate("yyyy", "1992"));
+		System.out.println(strToDate("yyyy-MM", "1992-12"));
+		System.out.println(strToDate("yyyy-MM-dd", "1992-12-01"));
 	}
 }

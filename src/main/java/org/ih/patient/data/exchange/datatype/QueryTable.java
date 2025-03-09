@@ -13,7 +13,7 @@ public enum QueryTable {
 	PERSON("person"), 
 	PERSON_PK("person_id");
 
-	private final String value;
+	public final String value;
 
 	private QueryTable(String value) {
 		this.value = value;
