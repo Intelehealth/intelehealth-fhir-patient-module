@@ -100,10 +100,22 @@
 		</dependency>
 
 		<dependency>
+			<groupId>ca.uhn.hapi.fhir</groupId>
+			<artifactId>hapi-fhir-validation</artifactId>
+			<version>${hapi.fhir.base.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>ca.uhn.hapi.fhir</groupId>
+			<artifactId>hapi-fhir-validation-resources-r4</artifactId>
+			<version>${hapi.fhir.base.version}</version>
+		</dependency>
+
+		<dependency>
 			<groupId>com.google.code.gson</groupId>
 			<artifactId>gson</artifactId>
-
 		</dependency>
+
 		<dependency>
 			<groupId>org.json</groupId>
 			<artifactId>json</artifactId>
