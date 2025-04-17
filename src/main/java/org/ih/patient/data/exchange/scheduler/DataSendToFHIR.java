@@ -202,9 +202,9 @@ public class DataSendToFHIR extends IHConstant {
 				localPatient = (Patient) bundleEntry.getResource();
 				localPatientUUID = localPatient.getIdElement().getIdPart();
 				addExtension(localPatient, localPatientUUID);
-				if (!validateResource(localPatient)) {
-					throw new ResourceIsNotValid("Patient fhir resource is not valid");
-				}
+//				if (!validateResource(localPatient)) {
+//					throw new ResourceIsNotValid("Patient fhir resource is not valid");
+//				}
 				Bundle.BundleEntryComponent component = transactionBundle.addEntry();
 				component.setResource(localPatient);
 
