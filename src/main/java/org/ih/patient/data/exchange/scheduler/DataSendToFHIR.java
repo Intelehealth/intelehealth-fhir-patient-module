@@ -40,7 +40,6 @@ import org.ih.patient.data.exchange.service.ConfigDataSyncService;
 import org.ih.patient.data.exchange.service.DataExchangeAuditLogService;
 import org.ih.patient.data.exchange.service.IHMarkerService;
 import org.ih.patient.data.exchange.service.PatientDataService;
-import org.ih.patient.data.exchange.service.VisitTypeService;
 import org.ih.patient.data.exchange.utils.DateUtils;
 import org.ih.patient.data.exchange.utils.HttpWebClient;
 import org.ih.patient.data.exchange.utils.IHConstant;
@@ -68,9 +67,6 @@ public class DataSendToFHIR extends IHConstant {
 	private FhirConfig firFhirConfig;
 
 	@Autowired
-	private VisitTypeService visitType;
-
-	@Autowired
 	private IHMarkerService ihMarkerService;
 
 	@Autowired
@@ -85,15 +81,15 @@ public class DataSendToFHIR extends IHConstant {
 	@Autowired
 	private DataExchangeAuditLogService dataExchangeService;
 
-	@Scheduled(fixedDelay = 60000, initialDelay = 60000)
+	@Scheduled(fixedDelay = 60000, initialDelay = 500)
 	public void scheduleTaskUsingCronExpression() throws ParseException, UnsupportedEncodingException,
 			DataFormatException, JsonProcessingException, JSONException {
-
+	
 		transferCreatedPatient();
 
 		transferModifiedPatient();
 	}
-
+	
 	private void transferCreatedPatient() {
 		ConfigDataSync patientSync = configDataSyncService.getConfigDataSync(ConfigFacilityDataType.PATIENTS);
 
@@ -209,10 +205,10 @@ public class DataSendToFHIR extends IHConstant {
 				component.setResource(localPatient);
 
 			}
-
+			
 			String payload = fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(transactionBundle)
 					.toString();
-
+			
 			DataExchangeAuditLog log = new DataExchangeAuditLog();
 			log.setResourceName(resourceType);
 			log.setResourceUuid(localPatientUUID);
@@ -247,10 +243,6 @@ public class DataSendToFHIR extends IHConstant {
 			throws JsonProcessingException, UnsupportedEncodingException, JSONException, ParseException {
 
 		if (!hasMPI(localPatient)) {
-//			Identifier mpiIdentifier = getMPIIndentifierFromBundle(remotePatientBundle);
-//			mpiIdentifier.setSystem(null);
-//			localPatient.getIdentifier().add(mpiIdentifier);
-
 			// Copy all the remote bundle identifier in locally,
 			// to handle data loss when update operation will happend
 			List<Identifier> identifiers = getIdentifiers(remotePatientBundle);
@@ -376,6 +368,9 @@ public class DataSendToFHIR extends IHConstant {
 
 		List<Extension> extensionList = new ArrayList<Extension>();
 		for (PersonAttribute attribute : attributes) {
+			
+			if(attribute.getName().contains("Telephone")) continue;
+			
 			Extension extension = new Extension();
 			String url = centralFhirURL + "/StructureDefinition/" + attribute.getName().replaceAll(" ", "-");
 			extension.setUrl(url);
@@ -384,17 +379,30 @@ public class DataSendToFHIR extends IHConstant {
 		}
 
 		patient.getExtension().addAll(extensionList);
+		List<Address> addressList = patient.getAddress();
 
-		for (Address address : patient.getAddress()) {
-			for (Extension ext : address.getExtension()) {
-				ext.setUrl(
-						ext.getUrl().replace("http://fhir.openmrs.org/ext/", centralFhirURL + "/StructureDefinition/"));
-				for (Extension e : ext.getExtension()) {
-					e.setUrl(e.getUrl().replace("http://fhir.openmrs.org/ext/",
-							centralFhirURL + "/StructureDefinition/"));
-				}
-			}
+		for (Address address : addressList) {
+		    List<StringType> newLines = new ArrayList<>();
+
+		    for (Extension ext : address.getExtension()) {
+		        for (Extension e : ext.getExtension()) {
+	            	System.out.println(e.getUrl());
+	            	System.out.println((StringType) e.getValue());
+		            if (e.getValue() instanceof StringType) {
+		            	System.out.println(e.getUrl());
+		            	System.out.println((StringType) e.getValue());
+		                newLines.add((StringType) e.getValue());
+		            } else if (e.getValue() != null) {
+		                newLines.add(new StringType(e.getValue().toString()));
+		            }
+		        }
+		    }
+
+		    address.getLine().clear();
+		    address.getLine().addAll(newLines);
+		    address.getExtension().clear();
 		}
+
 
 		if (patient.getTelecom().size() > 0) {
 			ContactPoint contact = patient.getTelecom().get(0);
