@@ -6,7 +6,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "Caste",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Caste",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Caste",
 				"version": "1.0",
 				"name": "Caste",
 				"status": "draft",
@@ -40,7 +40,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Caste"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Caste"
 						},
 						{
 							"id": "Extension.valueString",
@@ -63,7 +63,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "createdDate",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/createdDate",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/createdDate",
 				"version": "1.0",
 				"name": "createdDate",
 				"status": "draft",
@@ -97,7 +97,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/createdDate"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/createdDate"
 						},
 						{
 							"id": "Extension.valueString",
@@ -120,7 +120,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "Economic-Status",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Economic-Status",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Economic-Status",
 				"version": "1.0",
 				"name": "Economic-Status",
 				"status": "draft",
@@ -154,7 +154,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Economic-Status"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Economic-Status"
 						},
 						{
 							"id": "Extension.valueString",
@@ -177,7 +177,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "Education-Level",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Education-Level",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Education-Level",
 				"version": "1.0",
 				"name": "Education-Level",
 				"status": "draft",
@@ -211,7 +211,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Education-Level"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Education-Level"
 						},
 						{
 							"id": "Extension.valueString",
@@ -234,7 +234,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "NationalID",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/NationalID",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/NationalID",
 				"version": "1.0",
 				"name": "NationalID",
 				"status": "draft",
@@ -268,7 +268,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/NationalID"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/NationalID"
 						},
 						{
 							"id": "Extension.valueString",
@@ -291,7 +291,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "occupation",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/occupation",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/occupation",
 				"version": "1.0",
 				"name": "occupation",
 				"status": "draft",
@@ -325,7 +325,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/occupation"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/occupation"
 						},
 						{
 							"id": "Extension.valueString",
@@ -348,7 +348,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "providerUUID",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/providerUUID",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/providerUUID",
 				"version": "1.0",
 				"name": "providerUUID",
 				"status": "draft",
@@ -382,7 +382,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/providerUUID"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/providerUUID"
 						},
 						{
 							"id": "Extension.valueString",
@@ -405,7 +405,7 @@
 			"resource": {
 				"resourceType": "StructureDefinition",
 				"id": "Telephone-Number",
-				"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Telephone-Number",
+				"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Telephone-Number",
 				"version": "1.0",
 				"name": "Telephone-Number",
 				"status": "draft",
@@ -439,7 +439,7 @@
 							"definition": "The unique URL of the extension.",
 							"min": 1,
 							"max": "1",
-							"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/Telephone-Number"
+							"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/Telephone-Number"
 						},
 						{
 							"id": "Extension.valueString",
@@ -461,7 +461,7 @@
 		{
 			"resourceType": "StructureDefinition",
 			"id": "address",
-			"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/address",
+			"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/address",
 			"name": "address",
 			"status": "active",
 			"publisher": "mPower-social",
@@ -484,7 +484,7 @@
 					{
 						"id": "Extension.url",
 						"path": "Extension.url",
-						"fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/address"
+						"fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/address"
 					},
 					{
 						"id": "Extension.extension",
@@ -507,7 +507,7 @@
 						],
 						"extension": [
 							{
-								"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/address#address1",
+								"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/address#address1",
 								"valueString": ""
 							}
 						]
@@ -527,7 +527,7 @@
 						],
 						"extension": [
 							{
-								"url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/address#address2",
+								"url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/address#address2",
 								"valueString": ""
 							}
 						]
@@ -538,7 +538,7 @@
 		{
 		  "resourceType": "StructureDefinition",
 		  "id": "MPI",
-		  "url": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/MPI",
+		  "url": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/MPI",
 		  "name": "MPI",
 		  "status": "active",
 		  "publisher": "mpower-social",
@@ -563,7 +563,7 @@
 		            "code": "uri"
 		          }
 		        ],
-		        "fixedUri": "http://intelehealth-central-fhir.mpower-social.com/hapi-fhir-jpaserver/fhir/StructureDefinition/MPI"
+		        "fixedUri": "http://mpowerone.intelehealth.org:7002/hapi-fhir-jpaserver/fhir/StructureDefinition/MPI"
 		      }
 		    ]
 		  }

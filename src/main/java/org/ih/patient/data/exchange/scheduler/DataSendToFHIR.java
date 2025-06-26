@@ -3,9 +3,7 @@ package org.ih.patient.data.exchange.scheduler;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -198,9 +196,9 @@ public class DataSendToFHIR extends IHConstant {
 				localPatient = (Patient) bundleEntry.getResource();
 				localPatientUUID = localPatient.getIdElement().getIdPart();
 				addExtension(localPatient, localPatientUUID);
-//				if (!validateResource(localPatient)) {
-//					throw new ResourceIsNotValid("Patient fhir resource is not valid");
-//				}
+				if (!validateResource(localPatient)) {
+					throw new ResourceIsNotValid("Patient fhir resource is not valid");
+				}
 				Bundle.BundleEntryComponent component = transactionBundle.addEntry();
 				component.setResource(localPatient);
 
@@ -272,40 +270,7 @@ public class DataSendToFHIR extends IHConstant {
 			System.err.println("Local patient Already Have MPI identifier, Nothing to Update");
 		}
 	}
-
-	private String makeQueryParam(Patient patient) {
-		if (patient == null)
-			return "";
-		StringBuilder sb = new StringBuilder();
-
-		if (patient.getBirthDate() != null) {
-			String dob = new SimpleDateFormat("yyyy-MM-dd").format(patient.getBirthDate()).toString();
-			sb.append("&birthdate=").append(dob);
-		}
-
-		if (patient.getGender() != null) {
-			sb.append("&gender=").append(patient.getGender().toString().toLowerCase());
-		}
-
-		if (patient.getName() != null && !patient.getName().isEmpty()) {
-			sb.append("&family=").append(patient.getName().get(0).getFamily());
-		}
-
-		if (patient.getName() != null && !patient.getName().isEmpty()) {
-			sb.append("&given=").append(patient.getName().get(0).getGivenAsSingleString());
-		}
-
-		if (patient.getTelecom() != null && !patient.getTelecom().isEmpty()) {
-			sb.append("&telecom=").append(URLEncoder.encode(patient.getTelecom().get(0).getValue()));
-		}
-
-		if (sb.length() > 0)
-			return sb.substring(1);
-
-		return sb.toString();
-
-	}
-
+	
 	private String extractResourceId(Bundle bundle) {
 		if (bundle.getEntry().size() != 1)
 			return null;
