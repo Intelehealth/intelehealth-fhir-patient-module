@@ -21,6 +21,7 @@ import org.hl7.fhir.r4.model.ContactPoint;
 import org.hl7.fhir.r4.model.ContactPoint.ContactPointSystem;
 import org.hl7.fhir.r4.model.Extension;
 import org.hl7.fhir.r4.model.Identifier;
+import org.hl7.fhir.r4.model.Meta;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.Resource;
 import org.hl7.fhir.r4.model.StringType;
@@ -42,6 +43,8 @@ import org.ih.patient.data.exchange.utils.DateUtils;
 import org.ih.patient.data.exchange.utils.HttpWebClient;
 import org.ih.patient.data.exchange.utils.IHConstant;
 import org.json.JSONException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -58,6 +61,8 @@ import ca.uhn.fhir.validation.ValidationResult;
 
 @Component
 public class DataSendToFHIR extends IHConstant {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(DataSendToFHIR.class);
 
 	FhirContext fhirContext = FhirContext.forR4();
 
@@ -195,6 +200,7 @@ public class DataSendToFHIR extends IHConstant {
 
 				localPatient = (Patient) bundleEntry.getResource();
 				localPatientUUID = localPatient.getIdElement().getIdPart();
+				applyPatientMetaSource(localPatient);
 				addExtension(localPatient, localPatientUUID);
 				if (!validateResource(localPatient)) {
 					throw new ResourceIsNotValid("Patient fhir resource is not valid");
@@ -214,6 +220,13 @@ public class DataSendToFHIR extends IHConstant {
 			log.setRequestUrl(shrUrl + "rest/v1/patient/save");
 
 			DataExchangeAuditLog uLog = dataExchangeService.save(log);
+
+			LOGGER.info(
+					"Sending {} to FHIR server (POST {}), patient uuid={}, JSON payload:\n{}",
+					resourceType,
+					shrUrl + "rest/v1/patient/save",
+					localPatientUUID,
+					payload);
 
 			FhirResponse res = HttpWebClient.postWithBasicAuth(shrUrl, "rest/v1/patient/save",
 					firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1], payload);
@@ -325,6 +338,13 @@ public class DataSendToFHIR extends IHConstant {
 		}
 		return false;
 
+	}
+
+	private void applyPatientMetaSource(Patient patient) {
+		if (!patient.hasMeta()) {
+			patient.setMeta(new Meta());
+		}
+		patient.getMeta().setSource("intelehealth");
 	}
 
 	private Patient addExtension(Patient patient, String patientUUID) {
