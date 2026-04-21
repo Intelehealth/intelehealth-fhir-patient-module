@@ -57,12 +57,14 @@ import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.support.DefaultProfileValidationSupport;
 import ca.uhn.fhir.parser.DataFormatException;
 import ca.uhn.fhir.validation.FhirValidator;
+import ca.uhn.fhir.validation.ValidationOptions;
 import ca.uhn.fhir.validation.ValidationResult;
 
 @Component
 public class DataSendToFHIR extends IHConstant {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(DataSendToFHIR.class);
+	private static final String PATIENT_PROFILE_NAME = "ih_patient_profile";
 
 	FhirContext fhirContext = FhirContext.forR4();
 
@@ -202,6 +204,9 @@ public class DataSendToFHIR extends IHConstant {
 				localPatientUUID = localPatient.getIdElement().getIdPart();
 				applyPatientMetaSource(localPatient);
 				addExtension(localPatient, localPatientUUID);
+				String patientPayloadBeforeValidation = fhirContext.newJsonParser().setPrettyPrint(true)
+						.encodeResourceToString(localPatient);
+				System.err.println("Patient payload before validation: " + patientPayloadBeforeValidation);
 				if (!validateResource(localPatient)) {
 					throw new ResourceIsNotValid("Patient fhir resource is not valid");
 				}
@@ -221,6 +226,7 @@ public class DataSendToFHIR extends IHConstant {
 
 			DataExchangeAuditLog uLog = dataExchangeService.save(log);
 
+			System.err.println("Final Patient payload before sending to FHIR server: " + payload);
 			LOGGER.info(
 					"Sending {} to FHIR server (POST {}), patient uuid={}, JSON payload:\n{}",
 					resourceType,
@@ -345,6 +351,14 @@ public class DataSendToFHIR extends IHConstant {
 			patient.setMeta(new Meta());
 		}
 		patient.getMeta().setSource("intelehealth");
+		String profileUrl = getPatientProfileUrl();
+		if (!patient.getMeta().getProfile().stream().anyMatch(p -> profileUrl.equals(p.getValueAsString()))) {
+			patient.getMeta().addProfile(profileUrl);
+		}
+	}
+
+	private String getPatientProfileUrl() {
+		return centralFhirURL + "/StructureDefinition/" + PATIENT_PROFILE_NAME;
 	}
 
 	private Patient addExtension(Patient patient, String patientUUID) {
@@ -435,7 +449,9 @@ public class DataSendToFHIR extends IHConstant {
 		FhirInstanceValidator instanceValidator = new FhirInstanceValidator(validationSupport);
 		validator.registerValidatorModule(instanceValidator);
 
-		ValidationResult result = validator.validateWithResult(patient);
+		ValidationOptions options = new ValidationOptions();
+		options.addProfile(getPatientProfileUrl());
+		ValidationResult result = validator.validateWithResult(patient, options);
 
 		if (result.isSuccessful()) {
 			System.out.println("Validation passed!");
