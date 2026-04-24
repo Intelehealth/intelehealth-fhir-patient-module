@@ -1,15 +1,19 @@
 package org.ih.patient.data.exchange.scheduler;
 
 public class ResourceIsNotValid extends RuntimeException {
-	
+
 	private static final long serialVersionUID = 4126010310020452968L;
 
-	ResourceIsNotValid(){
+	ResourceIsNotValid() {
 		super();
 	}
-	
-	ResourceIsNotValid(String msg){
+
+	ResourceIsNotValid(String msg) {
 		super(msg);
+	}
+
+	ResourceIsNotValid(String msg, Throwable cause) {
+		super(msg, cause);
 	}
 
 }

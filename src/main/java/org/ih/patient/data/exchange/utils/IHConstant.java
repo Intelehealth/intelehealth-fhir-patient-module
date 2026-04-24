@@ -57,4 +57,10 @@ public abstract class IHConstant {
 	@Value("${central.fhir.url}")
 	protected String centralFhirURL;
 
+	@Value("${patient.profile.url}")
+	protected String patientProfileUrl;
+
+	@Value("${patient.profile.definition.path:structureDefinition/StructureDefinition-IH-patient-profile.json}")
+	protected String patientProfileDefinitionPath;
+
 }

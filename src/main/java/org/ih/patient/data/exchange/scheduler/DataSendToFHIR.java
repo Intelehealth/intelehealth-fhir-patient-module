@@ -5,20 +5,25 @@ import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.hl7.fhir.common.hapi.validation.support.InMemoryTerminologyServerValidationSupport;
 import org.hl7.fhir.common.hapi.validation.support.PrePopulatedValidationSupport;
+import org.hl7.fhir.common.hapi.validation.support.SnapshotGeneratingValidationSupport;
 import org.hl7.fhir.common.hapi.validation.support.ValidationSupportChain;
 import org.hl7.fhir.common.hapi.validation.validator.FhirInstanceValidator;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Address;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent;
+import org.hl7.fhir.r4.model.CodeableConcept;
 import org.hl7.fhir.r4.model.ContactPoint;
 import org.hl7.fhir.r4.model.ContactPoint.ContactPointSystem;
+import org.hl7.fhir.r4.model.Coding;
 import org.hl7.fhir.r4.model.Extension;
 import org.hl7.fhir.r4.model.Identifier;
 import org.hl7.fhir.r4.model.Meta;
@@ -64,8 +69,16 @@ import ca.uhn.fhir.validation.ValidationResult;
 public class DataSendToFHIR extends IHConstant {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(DataSendToFHIR.class);
-	private static final String PATIENT_PROFILE_NAME = "ih_patient_profile";
-
+	private static final String OPENMRS_ID_TYPE_TEXT = "OpenMRS ID";
+	private static final String MPI_TYPE_TEXT = "MPI";
+	private static final Set<String> ALLOWED_PATIENT_EXTENSION_URLS = new HashSet<>(Arrays.asList(
+			"Economic-Status",
+			"Education-Level",
+			"NationalID",
+			"occupation",
+			"Emergency-Contact-Number",
+			"Household-Number",
+			"Caste"));
 	FhirContext fhirContext = FhirContext.forR4();
 
 	@Autowired
@@ -204,12 +217,15 @@ public class DataSendToFHIR extends IHConstant {
 				localPatientUUID = localPatient.getIdElement().getIdPart();
 				applyPatientMetaSource(localPatient);
 				addExtension(localPatient, localPatientUUID);
+				normalizePatientForIgValidation(localPatient);
 				String patientPayloadBeforeValidation = fhirContext.newJsonParser().setPrettyPrint(true)
 						.encodeResourceToString(localPatient);
 				System.err.println("Patient payload before validation: " + patientPayloadBeforeValidation);
-				if (!validateResource(localPatient)) {
+				if (!validateResource(localPatient, localPatientUUID)) {
+					LOGGER.error("VALIDATION STATUS: INVALID for patient uuid={}", localPatientUUID);
 					throw new ResourceIsNotValid("Patient fhir resource is not valid");
 				}
+				LOGGER.info("VALIDATION STATUS: VALID for patient uuid={}", localPatientUUID);
 				Bundle.BundleEntryComponent component = transactionBundle.addEntry();
 				component.setResource(localPatient);
 
@@ -234,8 +250,13 @@ public class DataSendToFHIR extends IHConstant {
 					localPatientUUID,
 					payload);
 
+			/*
+			 * FhirResponse res = HttpWebClient.postWithBasicAuth(shrUrl,
+			 * "rest/v1/patient/save", firFhirConfig.getOpenMRSCredentials()[0],
+			 * firFhirConfig.getOpenMRSCredentials()[1], payload);
+			 */
 			FhirResponse res = HttpWebClient.postWithBasicAuth(shrUrl, "rest/v1/patient/save",
-					firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1], payload);
+					"openmrs", "Admin123", payload);
 
 			uLog.setResponse(res.getResponse());
 			uLog.setResponseStatus(res.getStatusCode());
@@ -358,7 +379,7 @@ public class DataSendToFHIR extends IHConstant {
 	}
 
 	private String getPatientProfileUrl() {
-		return centralFhirURL + "/StructureDefinition/" + PATIENT_PROFILE_NAME;
+		return patientProfileUrl;
 	}
 
 	private Patient addExtension(Patient patient, String patientUUID) {
@@ -367,11 +388,12 @@ public class DataSendToFHIR extends IHConstant {
 
 		List<Extension> extensionList = new ArrayList<Extension>();
 		for (PersonAttribute attribute : attributes) {
-			
-			if(attribute.getName().contains("Telephone")) continue;
-			
+			String suffix = mapPersonAttributeToExtensionSuffix(attribute.getName());
+			if (suffix == null || !ALLOWED_PATIENT_EXTENSION_URLS.contains(suffix))
+				continue;
+
 			Extension extension = new Extension();
-			String url = centralFhirURL + "/StructureDefinition/" + attribute.getName().replaceAll(" ", "-");
+			String url = centralFhirURL + "/StructureDefinition/" + suffix;
 			extension.setUrl(url);
 			extension.setValue(new StringType(attribute.getValue()));
 			extensionList.add(extension);
@@ -412,54 +434,135 @@ public class DataSendToFHIR extends IHConstant {
 		return patient;
 	}
 
+	/** Maps OpenMRS person attribute type name to StructureDefinition id suffix (kebab-case). */
+	private String mapPersonAttributeToExtensionSuffix(String attributeName) {
+		if (attributeName == null)
+			return null;
+		String trimmed = attributeName.trim();
+		String dashed = trimmed.replaceAll(" ", "-");
+		if ("Telephone-Number".equalsIgnoreCase(dashed) || trimmed.toLowerCase().contains("telephone number"))
+			return "Emergency-Contact-Number";
+		return dashed;
+	}
+
+	private void normalizePatientForIgValidation(Patient patient) {
+		// Keep only Patient-level extensions declared in the IG profile.
+		patient.setExtension(patient.getExtension().stream()
+				.filter(ext -> isAllowedPatientExtensionUrl(ext.getUrl()))
+				.collect(Collectors.toList()));
+
+		for (Identifier identifier : patient.getIdentifier()) {
+			// OpenMRS identifier location extension is not defined in this IG.
+			identifier.setExtension(new ArrayList<>());
+			ensureIdentifierSystem(identifier);
+			ensureIdentifierTypeCoding(identifier);
+		}
+	}
+
+	private boolean isAllowedPatientExtensionUrl(String url) {
+		if (url == null)
+			return false;
+		int lastSlash = url.lastIndexOf('/');
+		String suffix = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
+		return ALLOWED_PATIENT_EXTENSION_URLS.contains(suffix);
+	}
+
+	private void ensureIdentifierSystem(Identifier identifier) {
+		String typeText = identifier.hasType() ? identifier.getType().getText() : null;
+		if (typeText != null && typeText.equalsIgnoreCase(OPENMRS_ID_TYPE_TEXT)) {
+			identifier.setSystem(centralFhirURL + "/StructureDefinition/OpenMRS-ID");
+			return;
+		}
+		if (typeText != null && (typeText.equalsIgnoreCase(globalIdentifierName) || typeText.equalsIgnoreCase(MPI_TYPE_TEXT))) {
+			identifier.setSystem(centralFhirURL + "/StructureDefinition/MPI");
+			return;
+		}
+		if (!identifier.hasSystem()) {
+			identifier.setSystem("urn:ietf:rfc:3986");
+		}
+	}
+
+	private void ensureIdentifierTypeCoding(Identifier identifier) {
+		CodeableConcept type = identifier.getType();
+		String mappedCode = "MR";
+		CodeableConcept ensuredType = type != null ? type : new CodeableConcept();
+		ensuredType.setCoding(new ArrayList<>());
+		Coding coding = new Coding();
+		coding.setSystem("http://terminology.hl7.org/CodeSystem/v2-0203");
+		coding.setCode(mappedCode);
+		ensuredType.addCoding(coding);
+		identifier.setType(ensuredType);
+	}
+
 	private PrePopulatedValidationSupport getCustomSupport()
 			throws ConfigurationException, DataFormatException, IOException {
 		FhirContext ctx = FhirContext.forR4();
-
-		ClassPathResource extension = new ClassPathResource("structureDefinition/structureDefinition.json");
-
-		Bundle bundle = (Bundle) ctx.newJsonParser().parseResource(new InputStreamReader(extension.getInputStream()));
 		PrePopulatedValidationSupport customSupport = new PrePopulatedValidationSupport(ctx);
-		// Iterate through the entries to load each StructureDefinition
-		for (Bundle.BundleEntryComponent entry : bundle.getEntry()) {
-			IBaseResource resource = entry.getResource();
-			if (resource instanceof StructureDefinition) {
-				StructureDefinition structureDefinition = (StructureDefinition) resource;
-				customSupport.addStructureDefinition(structureDefinition);
-				System.err.println("Loaded StructureDefinition: " + structureDefinition.getName());
-			}
-		}
+		loadStructureDefinitions(customSupport, ctx, "structureDefinition/structureDefinition.json");
+		loadStructureDefinitions(customSupport, ctx, "structureDefinition/StructureDefinition-Emergency-Contact-Number.json");
+		loadStructureDefinitions(customSupport, ctx, "structureDefinition/StructureDefinition-Household-Number.json");
+		loadStructureDefinitions(customSupport, ctx, patientProfileDefinitionPath);
 		return customSupport;
 	}
 
-	private boolean validateResource(Patient patient) throws ConfigurationException, DataFormatException, IOException {
+	private void loadStructureDefinitions(PrePopulatedValidationSupport customSupport, FhirContext ctx, String classpathFile)
+			throws IOException {
+		ClassPathResource definitionResource = new ClassPathResource(classpathFile);
+		IBaseResource parsed = ctx.newJsonParser().parseResource(new InputStreamReader(definitionResource.getInputStream()));
+		if (parsed instanceof Bundle) {
+			Bundle bundle = (Bundle) parsed;
+			for (Bundle.BundleEntryComponent entry : bundle.getEntry()) {
+				IBaseResource resource = entry.getResource();
+				if (resource instanceof StructureDefinition) {
+					StructureDefinition structureDefinition = (StructureDefinition) resource;
+					customSupport.addStructureDefinition(structureDefinition);
+					System.err.println("Loaded StructureDefinition: " + structureDefinition.getName());
+				}
+			}
+			return;
+		}
+		if (parsed instanceof StructureDefinition) {
+			StructureDefinition structureDefinition = (StructureDefinition) parsed;
+			customSupport.addStructureDefinition(structureDefinition);
+			System.err.println("Loaded StructureDefinition: " + structureDefinition.getName());
+		}
+	}
+
+	private boolean validateResource(Patient patient, String patientUuid)
+			throws ConfigurationException, DataFormatException, IOException {
 
 		FhirValidator validator = fhirContext.newValidator();
-		FhirContext ctx = FhirContext.forR4();
+		FhirContext ctx = fhirContext;
 
 		// Create validation support and add the StructureDefinition
 		ValidationSupportChain validationSupport = new ValidationSupportChain();
 		DefaultProfileValidationSupport defaultSupport = new DefaultProfileValidationSupport(ctx);
 		InMemoryTerminologyServerValidationSupport inMemSupport = new InMemoryTerminologyServerValidationSupport(ctx);
+		SnapshotGeneratingValidationSupport snapshotSupport = new SnapshotGeneratingValidationSupport(ctx);
 
 		validationSupport.addValidationSupport(inMemSupport);
 		validationSupport.addValidationSupport(defaultSupport);
 		validationSupport.addValidationSupport(getCustomSupport());
+		validationSupport.addValidationSupport(snapshotSupport);
 
 		FhirInstanceValidator instanceValidator = new FhirInstanceValidator(validationSupport);
 		validator.registerValidatorModule(instanceValidator);
 
 		ValidationOptions options = new ValidationOptions();
 		options.addProfile(getPatientProfileUrl());
-		ValidationResult result = validator.validateWithResult(patient, options);
+		ValidationResult result;
+		try {
+			result = validator.validateWithResult(patient, options);
+		} catch (Exception ex) {
+			LOGGER.error("Validation execution failed for patient uuid={}: {}", patientUuid, ex.getMessage(), ex);
+			return false;
+		}
 
 		if (result.isSuccessful()) {
-			System.out.println("Validation passed!");
+			LOGGER.info("Validation passed for patient uuid={}", patientUuid);
 		} else {
-			System.err.println("Validation failed:");
-			result.getMessages().forEach(msg -> {
-				System.err.println(" - " + msg.getSeverity() + ": " + msg.getMessage());
-			});
+			LOGGER.error("Validation failed for patient uuid={}", patientUuid);
+			result.getMessages().forEach(msg -> LOGGER.error(" - {}: {}", msg.getSeverity(), msg.getMessage()));
 		}
 		return result.isSuccessful();
 	}
