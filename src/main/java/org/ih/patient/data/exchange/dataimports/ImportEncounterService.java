@@ -44,7 +44,7 @@ public class ImportEncounterService extends IHConstant {
 
 	public void importEncounter(String patientId, String locationUuid)
 			throws UnsupportedEncodingException, JSONException, JsonProcessingException, ParseException {
-		String data = HttpWebClient.get(shrUrl, "rest/v1/bundle/Encounter?subject=" + patientId + "&_sort=_lastUpdated",
+		String data = HttpWebClient.get(mciURL, "rest/v1/bundle/Encounter?subject=" + patientId + "&_sort=_lastUpdated",
 				firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);
 
 		Bundle theBundle = fhirContext.newJsonParser().parseResource(Bundle.class, data);

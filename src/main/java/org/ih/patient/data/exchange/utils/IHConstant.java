@@ -49,7 +49,7 @@ public abstract class IHConstant {
 	protected String gofrOpenhimAuthentication;
 
 	@Value("${opencr.shr.url}")
-	protected String shrUrl;
+	protected String mciURL;
 	
 	@Value("${structuredefinition.extension.url}")
 	protected String sdExtensionURL;

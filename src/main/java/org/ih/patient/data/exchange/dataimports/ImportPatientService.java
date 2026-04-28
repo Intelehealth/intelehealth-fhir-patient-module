@@ -55,7 +55,7 @@ public class ImportPatientService extends IHConstant {
 
 		System.err.println("PatientId: " + patientId + " ,LocationId: " + locationUuid);
 
-		String data = HttpWebClient.get(shrUrl, "rest/v1/bundle/Patient?_id=" + patientId,
+		String data = HttpWebClient.get(mciURL, "rest/v1/bundle/Patient?_id=" + patientId,
 				firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);
 
 		Bundle theBundle = fhirContext.newJsonParser().parseResource(Bundle.class, data);

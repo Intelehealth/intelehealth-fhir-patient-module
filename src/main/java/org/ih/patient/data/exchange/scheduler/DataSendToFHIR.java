@@ -28,6 +28,7 @@ import org.hl7.fhir.r4.model.Extension;
 import org.hl7.fhir.r4.model.Identifier;
 import org.hl7.fhir.r4.model.Meta;
 import org.hl7.fhir.r4.model.Patient;
+import org.hl7.fhir.r4.model.Reference;
 import org.hl7.fhir.r4.model.Resource;
 import org.hl7.fhir.r4.model.StringType;
 import org.hl7.fhir.r4.model.StructureDefinition;
@@ -47,6 +48,9 @@ import org.ih.patient.data.exchange.service.PatientDataService;
 import org.ih.patient.data.exchange.utils.DateUtils;
 import org.ih.patient.data.exchange.utils.HttpWebClient;
 import org.ih.patient.data.exchange.utils.IHConstant;
+import org.ih.patient.data.exchange.validationrecord.ValidationRecordContext;
+import org.ih.patient.data.exchange.validationrecord.ValidationOutcome;
+import org.ih.patient.data.exchange.validationrecord.FhirResourceValidationRecordService;
 import org.json.JSONException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +75,8 @@ public class DataSendToFHIR extends IHConstant {
 	private static final Logger LOGGER = LoggerFactory.getLogger(DataSendToFHIR.class);
 	private static final String OPENMRS_ID_TYPE_TEXT = "OpenMRS ID";
 	private static final String MPI_TYPE_TEXT = "MPI";
+	private static final String OPENMRS_IDENTIFIER_LOCATION_EXTENSION_URL = "http://fhir.openmrs.org/ext/patient/identifier#location";
+	private static final String OPENMRS_DEFAULT_IDENTIFIER_LOCATION_UUID = "8d6c993e-c2cc-11de-8d13-0010c6dffd0f";
 	private static final Set<String> ALLOWED_PATIENT_EXTENSION_URLS = new HashSet<>(Arrays.asList(
 			"Economic-Status",
 			"Education-Level",
@@ -99,13 +105,16 @@ public class DataSendToFHIR extends IHConstant {
 	@Autowired
 	private DataExchangeAuditLogService dataExchangeService;
 
+	@Autowired
+	private FhirResourceValidationRecordService validationRecordService;
+
 	@Scheduled(fixedDelay = 60000, initialDelay = 500)
 	public void scheduleTaskUsingCronExpression() throws ParseException, UnsupportedEncodingException,
 			DataFormatException, JsonProcessingException, JSONException {
 	
 		transferCreatedPatient();
 
-		transferModifiedPatient();
+		//transferModifiedPatient();
 	}
 	
 	private void transferCreatedPatient() {
@@ -220,10 +229,20 @@ public class DataSendToFHIR extends IHConstant {
 				normalizePatientForIgValidation(localPatient);
 				String patientPayloadBeforeValidation = fhirContext.newJsonParser().setPrettyPrint(true)
 						.encodeResourceToString(localPatient);
-				System.err.println("Patient payload before validation: " + patientPayloadBeforeValidation);
+				ValidationRecordContext.setPayloadJson(patientPayloadBeforeValidation);
+				ValidationRecordContext.setFailureReason(null);
+				//System.err.println("Patient payload before validation: " + patientPayloadBeforeValidation);
 				if (!validateResource(localPatient, localPatientUUID)) {
 					LOGGER.error("VALIDATION STATUS: INVALID for patient uuid={}", localPatientUUID);
-					throw new ResourceIsNotValid("Patient fhir resource is not valid");
+					String reason = ValidationRecordContext.getFailureReason();
+					validationRecordService.recordValues(
+							resourceType,
+							localPatientUUID,
+							ValidationOutcome.VALIDATION_FAILED,
+							reason,
+							patientPayloadBeforeValidation);
+					throw new ResourceIsNotValid("Patient fhir resource is not valid"
+							+ (reason != null ? (": " + reason) : ""));
 				}
 				LOGGER.info("VALIDATION STATUS: VALID for patient uuid={}", localPatientUUID);
 				Bundle.BundleEntryComponent component = transactionBundle.addEntry();
@@ -238,24 +257,23 @@ public class DataSendToFHIR extends IHConstant {
 			log.setResourceName(resourceType);
 			log.setResourceUuid(localPatientUUID);
 			log.setRequest(payload);
-			log.setRequestUrl(shrUrl + "rest/v1/patient/save");
+			log.setRequestUrl(mciURL + "rest/v1/patient/save");
 
 			DataExchangeAuditLog uLog = dataExchangeService.save(log);
 
-			System.err.println("Final Patient payload before sending to FHIR server: " + payload);
-			LOGGER.info(
-					"Sending {} to FHIR server (POST {}), patient uuid={}, JSON payload:\n{}",
-					resourceType,
-					shrUrl + "rest/v1/patient/save",
-					localPatientUUID,
-					payload);
+			//System.err.println("Final Patient payload before sending to FHIR server: " + payload);
+			/*
+			 * LOGGER.info(
+			 * "Sending {} to FHIR server (POST {}), patient uuid={}, JSON payload:\n{}",
+			 * resourceType, mciURL + "rest/v1/patient/save", localPatientUUID, payload);
+			 */
 
 			/*
 			 * FhirResponse res = HttpWebClient.postWithBasicAuth(shrUrl,
 			 * "rest/v1/patient/save", firFhirConfig.getOpenMRSCredentials()[0],
 			 * firFhirConfig.getOpenMRSCredentials()[1], payload);
 			 */
-			FhirResponse res = HttpWebClient.postWithBasicAuth(shrUrl, "rest/v1/patient/save",
+			FhirResponse res = HttpWebClient.postWithBasicAuth(mciURL, "rest/v1/patient/save",
 					"openmrs", "Admin123", payload);
 
 			uLog.setResponse(res.getResponse());
@@ -302,7 +320,8 @@ public class DataSendToFHIR extends IHConstant {
 
 			String payload = fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(localPatient);
 
-			System.err.println("Local patient update:  >>>>>> " + payload);
+			//System.err.println("Local patient update:  >>>>>> " + payload);
+			ensureIdentifierLocationForOpenmrsUpdate(localPatient);
 
 			firFhirConfig.getLocalOpenMRSFhirContext().update().resource(localPatient).execute();
 			System.err.println("Local patient update with remote MPI identifier");
@@ -356,6 +375,23 @@ public class DataSendToFHIR extends IHConstant {
 		return false;
 	}
 
+	private void ensureIdentifierLocationForOpenmrsUpdate(Patient patient) {
+		if (patient == null || patient.getIdentifier() == null) {
+			return;
+		}
+		for (Identifier identifier : patient.getIdentifier()) {
+			boolean hasLocation = identifier.getExtension().stream()
+					.anyMatch(ext -> OPENMRS_IDENTIFIER_LOCATION_EXTENSION_URL.equals(ext.getUrl()));
+			if (hasLocation) {
+				continue;
+			}
+			Extension locationExtension = new Extension();
+			locationExtension.setUrl(OPENMRS_IDENTIFIER_LOCATION_EXTENSION_URL);
+			locationExtension.setValue(new Reference("Location/" + OPENMRS_DEFAULT_IDENTIFIER_LOCATION_UUID));
+			identifier.getExtension().add(locationExtension);
+		}
+	}
+
 	private boolean matchWithLocalIdentifier(Patient localPatient, Identifier identifier) {
 
 		for (Identifier localIdentifier : localPatient.getIdentifier()) {
@@ -371,7 +407,7 @@ public class DataSendToFHIR extends IHConstant {
 		if (!patient.hasMeta()) {
 			patient.setMeta(new Meta());
 		}
-		patient.getMeta().setSource("intelehealth");
+		patient.getMeta().setSource("https://intelehealth.org");
 		String profileUrl = getPatientProfileUrl();
 		if (!patient.getMeta().getProfile().stream().anyMatch(p -> profileUrl.equals(p.getValueAsString()))) {
 			patient.getMeta().addProfile(profileUrl);
@@ -390,6 +426,8 @@ public class DataSendToFHIR extends IHConstant {
 		for (PersonAttribute attribute : attributes) {
 			String suffix = mapPersonAttributeToExtensionSuffix(attribute.getName());
 			if (suffix == null || !ALLOWED_PATIENT_EXTENSION_URLS.contains(suffix))
+				continue;
+			if (isIgnorablePersonAttributeValue(attribute.getValue()))
 				continue;
 
 			Extension extension = new Extension();
@@ -434,18 +472,45 @@ public class DataSendToFHIR extends IHConstant {
 		return patient;
 	}
 
+	private boolean isIgnorablePersonAttributeValue(String value) {
+		if (value == null)
+			return true;
+		String trimmed = value.trim();
+		return trimmed.isEmpty() || "not provided".equalsIgnoreCase(trimmed);
+	}
+
 	/** Maps OpenMRS person attribute type name to StructureDefinition id suffix (kebab-case). */
 	private String mapPersonAttributeToExtensionSuffix(String attributeName) {
 		if (attributeName == null)
 			return null;
-		String trimmed = attributeName.trim();
-		String dashed = trimmed.replaceAll(" ", "-");
-		if ("Telephone-Number".equalsIgnoreCase(dashed) || trimmed.toLowerCase().contains("telephone number"))
+		String normalized = attributeName.trim().toLowerCase().replaceAll("[\\s_-]+", "");
+
+		switch (normalized) {
+		case "telephonenumber":
 			return "Emergency-Contact-Number";
-		return dashed;
+		case "caste":
+			return "Caste";
+		case "economicstatus":
+			return "Economic-Status";
+		case "educationlevel":
+			return "Education-Level";
+		case "occupation":
+			return "occupation";
+		case "nationalid":
+			return "NationalID";
+		case "householdnumber":
+			return "Household-Number";
+		default:
+			return null;
+		}
 	}
 
 	private void normalizePatientForIgValidation(Patient patient) {
+		// Align with IHPatientProfile: these elements are disallowed (0..0).
+		patient.setLanguage(null);
+		patient.setText(null);
+		patient.getContained().clear();
+
 		// Keep only Patient-level extensions declared in the IG profile.
 		patient.setExtension(patient.getExtension().stream()
 				.filter(ext -> isAllowedPatientExtensionUrl(ext.getUrl()))
@@ -555,6 +620,7 @@ public class DataSendToFHIR extends IHConstant {
 			result = validator.validateWithResult(patient, options);
 		} catch (Exception ex) {
 			LOGGER.error("Validation execution failed for patient uuid={}: {}", patientUuid, ex.getMessage(), ex);
+			ValidationRecordContext.setFailureReason(ex.getMessage());
 			return false;
 		}
 
@@ -562,7 +628,15 @@ public class DataSendToFHIR extends IHConstant {
 			LOGGER.info("Validation passed for patient uuid={}", patientUuid);
 		} else {
 			LOGGER.error("Validation failed for patient uuid={}", patientUuid);
-			result.getMessages().forEach(msg -> LOGGER.error(" - {}: {}", msg.getSeverity(), msg.getMessage()));
+			StringBuilder reasonBuilder = new StringBuilder();
+			result.getMessages().forEach(msg -> {
+				LOGGER.error(" - {}: {}", msg.getSeverity(), msg.getMessage());
+				if (reasonBuilder.length() > 0) {
+					reasonBuilder.append(" | ");
+				}
+				reasonBuilder.append(msg.getSeverity()).append(": ").append(msg.getMessage());
+			});
+			ValidationRecordContext.setFailureReason(reasonBuilder.toString());
 		}
 		return result.isSuccessful();
 	}

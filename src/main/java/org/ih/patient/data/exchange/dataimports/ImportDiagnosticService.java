@@ -52,7 +52,7 @@ public class ImportDiagnosticService extends IHConstant{
 				.ascending("_lastUpdated").returnBundle(Bundle.class);
 		Bundle encounterTasksBundle = encounter.execute();*/
 		
-		String response = HttpWebClient.get(shrUrl, "rest/v1/bundle/DiagnosticReport?subject=" + patientId+"&_sort=_lastUpdated", firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);		
+		String response = HttpWebClient.get(mciURL, "rest/v1/bundle/DiagnosticReport?subject=" + patientId+"&_sort=_lastUpdated", firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);		
 		Bundle theBundle = fhirContext.newJsonParser().parseResource(
 				Bundle.class, response);
 

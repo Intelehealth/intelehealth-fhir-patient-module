@@ -85,6 +85,21 @@
         "max": "0"
       },
       {
+        "id": "Patient.language",
+        "path": "Patient.language",
+        "max": "0"
+      },
+      {
+        "id": "Patient.text",
+        "path": "Patient.text",
+        "max": "0"
+      },
+      {
+        "id": "Patient.contained",
+        "path": "Patient.contained",
+        "max": "0"
+      },
+      {
         "id": "Patient.extension",
         "path": "Patient.extension",
         "slicing": {

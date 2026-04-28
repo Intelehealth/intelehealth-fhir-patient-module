@@ -33,7 +33,7 @@ public class ImportLocationService extends IHConstant {
 
 	public void importLocation(String locationId)
 			throws JsonProcessingException, UnsupportedEncodingException, JSONException, ParseException {
-		String data = HttpWebClient.get(shrUrl, "rest/v1/bundle/Location?_id=" + locationId,
+		String data = HttpWebClient.get(mciURL, "rest/v1/bundle/Location?_id=" + locationId,
 				firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);
 		
 		Bundle theBundle = fhirContext.newJsonParser().parseResource(Bundle.class, data);

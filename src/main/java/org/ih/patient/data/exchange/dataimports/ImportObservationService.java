@@ -33,7 +33,7 @@ public class ImportObservationService extends IHConstant {
 
 	public void importObservation(String patientId) throws UnsupportedEncodingException {
 
-		String data = HttpWebClient.get(shrUrl,
+		String data = HttpWebClient.get(mciURL,
 				"rest/v1/bundle/Observation?subject=" + patientId + "&_sort=_lastUpdated",
 				firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);
 
