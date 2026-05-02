@@ -1,6 +1,7 @@
 package org.ih.patient.data.exchange.utils;
 
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 
 import org.ih.patient.data.exchange.domain.FhirResponse;
 import org.springframework.http.HttpHeaders;
@@ -8,7 +9,6 @@ import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import org.springframework.web.reactive.resource.HttpResource;
 
 import reactor.core.publisher.Mono;
 
@@ -16,6 +16,26 @@ public class HttpWebClient {
 
 	static ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
 			.codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10000000)).build();
+
+	/**
+	 * GET against an absolute {@link URI} (including query string), same pattern as MCI OpenCR search.
+	 */
+	public static String searchPatient(String baseURL, URI uri, String username, String password)
+			throws UnsupportedEncodingException {
+		WebClient webClient = WebClient.builder().baseUrl(baseURL)
+				//.defaultHeaders(httpHeaders -> httpHeaders.setBasicAuth(username, password))
+				.exchangeStrategies(exchangeStrategies).build();
+		try {
+			return webClient.get().uri(uri)
+					.headers(httpHeaders -> httpHeaders.setBasicAuth(username, password)).retrieve()
+					.bodyToMono(String.class).block();
+		} catch (WebClientResponseException e) {
+			System.err.println(e);
+			System.err.println(e.getStatusCode());
+			System.err.println(e.getResponseBodyAsString());
+			throw e;
+		}
+	}
 
 	public static String get(String baseURL, String APIURL, String username, String password)
 			throws UnsupportedEncodingException {

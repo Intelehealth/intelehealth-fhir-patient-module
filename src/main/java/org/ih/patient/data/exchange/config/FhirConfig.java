@@ -12,6 +12,10 @@ public class FhirConfig extends IHConstant {
 	
 	FhirContext fhirContext = FhirContext.forR4();
 
+	public String getOpencrOpenhimURL() {
+		return opencrOpenhimURL;
+	}
+
 	public IGenericClient getOpenCRFhirContext() {
 		System.err.println("opencrOpenhimURL:" + opencrOpenhimURL);
 		IGenericClient openCr = fhirContext.newRestfulGenericClient(opencrOpenhimURL);
@@ -39,5 +43,10 @@ public class FhirConfig extends IHConstant {
 
 	public String[] getOpenMRSCredentials() {
 		return localOpenmrsOpenhimAuthentication.split(":");
+	}
+
+	/** Basic-auth parts for central OpenCR FHIR server ({@link #opencrOpenhimURL}). */
+	public String[] getOpenCRCredentials() {
+		return opencrOpenhimAuthentication.split(":", 2);
 	}
 }

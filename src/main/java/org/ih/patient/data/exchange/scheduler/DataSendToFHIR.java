@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -40,10 +41,15 @@ import org.ih.patient.data.exchange.domain.PatientDTO;
 import org.ih.patient.data.exchange.domain.PersonAttribute;
 import org.ih.patient.data.exchange.model.DataExchangeAuditLog;
 import org.ih.patient.data.exchange.model.IHMarker;
+import org.ih.patient.data.exchange.mpiduplicate.CentralPatientDuplicateMatcher;
+import org.ih.patient.data.exchange.mpiduplicate.ForceSyncDuplicateResolutionContext;
+import org.ih.patient.data.exchange.mpiduplicate.MpiDuplicateReviewResolutionService;
+import org.ih.patient.data.exchange.mpiduplicate.MpiPatientDuplicateReviewCase;
 import org.ih.patient.data.exchange.service.CommonOperationService;
 import org.ih.patient.data.exchange.service.ConfigDataSyncService;
 import org.ih.patient.data.exchange.service.DataExchangeAuditLogService;
 import org.ih.patient.data.exchange.service.IHMarkerService;
+import org.ih.patient.data.exchange.service.LocalPatientMpiUpdateService;
 import org.ih.patient.data.exchange.service.PatientDataService;
 import org.ih.patient.data.exchange.utils.DateUtils;
 import org.ih.patient.data.exchange.utils.HttpWebClient;
@@ -107,6 +113,15 @@ public class DataSendToFHIR extends IHConstant {
 
 	@Autowired
 	private FhirResourceValidationRecordService validationRecordService;
+
+	@Autowired
+	private CentralPatientDuplicateMatcher centralPatientDuplicateMatcher;
+
+	@Autowired
+	private MpiDuplicateReviewResolutionService mpiDuplicateReviewResolutionService;
+
+	@Autowired
+	private LocalPatientMpiUpdateService localPatientMpiUpdateService;
 
 	@Scheduled(fixedDelay = 60000, initialDelay = 500)
 	public void scheduleTaskUsingCronExpression() throws ParseException, UnsupportedEncodingException,
@@ -204,10 +219,60 @@ public class DataSendToFHIR extends IHConstant {
 
 		Bundle theBundle = fhirContext.newJsonParser().parseResource(Bundle.class, data);
 
-		return sendFHIRBundle(theBundle, resourceType);
+		return sendFHIRBundle(theBundle, resourceType, false);
+	}
+
+	/**
+	 * Operator export: same steps as {@link #send(String, String)} but performs <strong>no</strong> central OpenCR
+	 * demographic duplicate search (no {@link CentralPatientDuplicateMatcher}). Still loads the Patient via local
+	 * FHIR {@code GET Patient?_id=} — that read-by-id is required and is not an MPI duplicate search.
+	 */
+	public FhirResponse forceSendPatientToCentralByUuid(String patientUuid)
+			throws ParseException, DataFormatException, JSONException, ConfigurationException, IOException {
+		if (patientUuid == null || patientUuid.trim().isEmpty()) {
+			throw new IllegalArgumentException("patientUuid is required");
+		}
+		String uuid = patientUuid.trim();
+		System.err.println("resourceType => Patient => " + uuid + " (force-sync, skip central duplicate search)");
+
+		String data = HttpWebClient.get(localOpenmrsOpenhimURL, "/ws/fhir2/R4/Patient?_id=" + uuid,
+				firFhirConfig.getOpenMRSCredentials()[0], firFhirConfig.getOpenMRSCredentials()[1]);
+
+		System.err.println("Local Fhir Bundle => " + data);
+
+		Bundle theBundle = fhirContext.newJsonParser().parseResource(Bundle.class, data);
+
+		if (!theBundle.hasEntry()) {
+			throw new IllegalArgumentException("Local Patient bundle empty for uuid=" + uuid);
+		}
+		Resource firstRes = theBundle.getEntryFirstRep().getResource();
+		if (!(firstRes instanceof Patient)) {
+			throw new IllegalArgumentException("Local FHIR entry is not a Patient for uuid=" + uuid);
+		}
+		Patient localPatientFromFetch = (Patient) firstRes;
+		if (localPatientMpiUpdateService.patientHasMpiPerSchedulerExportRule(localPatientFromFetch)) {
+			LOGGER.info("Force sync skipped for patient uuid={}: local MPI identifier already present", uuid);
+			FhirResponse skipped = new FhirResponse();
+			skipped.setStatusCode("skipped");
+			skipped.setMessage(LocalPatientMpiUpdateService.MESSAGE_MPI_ALREADY_SET_FORCE_SYNC);
+			skipped.setResponse(null);
+			return skipped;
+		}
+
+		return sendFHIRBundle(theBundle, "Patient", true);
 	}
 
 	public FhirResponse sendFHIRBundle(Bundle localTaskBundle, String resourceType)
+			throws ParseException, DataFormatException, JSONException, ConfigurationException, IOException {
+		return sendFHIRBundle(localTaskBundle, resourceType, false);
+	}
+
+	/**
+	 * @param skipCentralMpiDuplicateSearch {@code true} for operator force-sync: skips OpenCR demographic search,
+	 *                                    duplicate-review persistence, and 409 deferral.
+	 */
+	public FhirResponse sendFHIRBundle(Bundle localTaskBundle, String resourceType,
+			boolean skipCentralMpiDuplicateSearch)
 			throws ParseException, DataFormatException, JSONException, ConfigurationException, IOException {
 
 		String localPatientUUID = null;
@@ -252,7 +317,47 @@ public class DataSendToFHIR extends IHConstant {
 			
 			String payload = fhirContext.newJsonParser().setPrettyPrint(true).encodeResourceToString(transactionBundle)
 					.toString();
-			
+
+			Optional<MpiPatientDuplicateReviewCase> duplicateReview = Optional.empty();
+			if (!skipCentralMpiDuplicateSearch) {
+				// Central OpenCR demographic search (scheduler path only). Force-sync passes skipCentralMpiDuplicateSearch=true.
+				duplicateReview = centralPatientDuplicateMatcher
+						.persistIfCentralSearchHasMultipleMatches(localPatient, localPatientUUID, payload);
+				if (!hasMPI(localPatient) && duplicateReview.isPresent()) {
+					MpiPatientDuplicateReviewCase reviewCase = duplicateReview.get();
+					LOGGER.warn(
+							"Skipping MCI save for patient uuid={}: {} duplicate MPI candidates stored for manual review (case_uuid={})",
+							localPatientUUID, reviewCase.getCandidateCount(), reviewCase.getCaseUuid());
+					DataExchangeAuditLog deferLog = new DataExchangeAuditLog();
+					deferLog.setResourceName(resourceType);
+					deferLog.setResourceUuid(localPatientUUID);
+					deferLog.setRequest(payload);
+					deferLog.setRequestUrl(mciURL + "rest/v1/patient/save");
+					deferLog.setResponse(
+							"Deferred pending duplicate MPI review: case_uuid=" + reviewCase.getCaseUuid());
+					deferLog.setResponseStatus("409");
+					deferLog.setStatus(false);
+					DataExchangeAuditLog savedDeferLog = dataExchangeService.save(deferLog);
+					savedDeferLog.setChangedBy(1);
+					savedDeferLog.setDateChanged(DateUtils.toFormattedDateNow());
+					dataExchangeService.update(savedDeferLog);
+					FhirResponse deferResponse = new FhirResponse();
+					deferResponse.setStatusCode("409");
+					deferResponse.setResponse(deferLog.getResponse());
+					return deferResponse;
+				}
+
+				if (duplicateReview.isPresent()) {
+					LOGGER.info(
+							"MPI duplicate review case {} present for patient uuid={}; continuing MCI sync because patient already has MPI",
+							duplicateReview.get().getCaseUuid(), localPatientUUID);
+				}
+			} else {
+				LOGGER.info(
+						"Central MPI duplicate search skipped for patient uuid={} (operator force-sync); proceeding to MCI",
+						localPatientUUID);
+			}
+
 			DataExchangeAuditLog log = new DataExchangeAuditLog();
 			log.setResourceName(resourceType);
 			log.setResourceUuid(localPatientUUID);
@@ -283,6 +388,19 @@ public class DataSendToFHIR extends IHConstant {
 				System.err.println("Response from central fhir: " + res.getResponse());
 				syncPatientToLocal(remoteBundle, localPatient);
 				uLog.setFhirId(extractResourceId(remoteBundle));
+				if (skipCentralMpiDuplicateSearch) {
+					String resolvedBy = ForceSyncDuplicateResolutionContext.peekResolvedBy();
+					if (resolvedBy != null) {
+						try {
+							mpiDuplicateReviewResolutionService.resolvePendingCaseAfterSuccessfulForceSync(
+									localPatientUUID, remoteBundle, resolvedBy);
+						} catch (RuntimeException ex) {
+							LOGGER.warn(
+									"Duplicate-review resolution after force-sync failed for patient {}: {}",
+									localPatientUUID, ex.getMessage(), ex);
+						}
+					}
+				}
 			} else {
 				uLog.setStatus(false);
 			}
@@ -367,12 +485,7 @@ public class DataSendToFHIR extends IHConstant {
 	}
 
 	private boolean hasMPI(Patient patient) {
-		for (Identifier identifier : patient.getIdentifier()) {
-			if (identifier.getType().getText().equals(globalIdentifierName)) {
-				return true;
-			}
-		}
-		return false;
+		return localPatientMpiUpdateService.patientHasMpiPerSchedulerExportRule(patient);
 	}
 
 	private void ensureIdentifierLocationForOpenmrsUpdate(Patient patient) {

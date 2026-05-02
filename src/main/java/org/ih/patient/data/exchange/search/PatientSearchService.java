@@ -3,7 +3,9 @@ package org.ih.patient.data.exchange.search;
 import java.io.UnsupportedEncodingException;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.hl7.fhir.r4.model.Address;
 import org.hl7.fhir.r4.model.Bundle;
@@ -17,6 +19,7 @@ import org.ih.patient.data.exchange.config.FhirConfig;
 import org.ih.patient.data.exchange.dto.Names;
 import org.ih.patient.data.exchange.dto.PatientAddress;
 import org.ih.patient.data.exchange.dto.SearchPateintDTO;
+import org.ih.patient.data.exchange.param.ReuestParam;
 import org.json.JSONException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,29 +33,50 @@ public class PatientSearchService {
 	public List<SearchPateintDTO> searchPatient(PatientSearchParam param)
 			throws ParseException, UnsupportedEncodingException, JSONException {
 
-		StringBuilder searchParam = new StringBuilder();
-		if (param.getIdentifiers() != null) {
-			searchParam.append("&identifier=" + param.getIdentifiers());
-		}
-		if (param.getGender() != null) {
-			searchParam.append("&gender=" + param.getGender());
-		}
-		if (param.getBirthdate() != null) {
-			searchParam.append("&birthdate=" + param.getBirthdate());
-		}
-		if (param.getFamily() != null) {
-			searchParam.append("&family=" + param.getFamily());
-		}
-		if (param.getGiven() != null) {
-			searchParam.append("&given=" + param.getGiven());
-		}
-		String searchParamString = searchParam.substring(1);
+		Map<String, String> query = buildPatientSearchMap(param);
+		String searchParamString = ReuestParam.toQueryParam(query);
 
 		Bundle results = firFhirConfig.getOpenCRFhirContext().search()
 				.byUrl("Patient?" + searchParamString)
 				.returnBundle(Bundle.class).execute();
 
 		return generatePatient(results);
+	}
+
+	/**
+	 * Maps JSON/body fields to FHIR Patient search parameters (including {@code telecom} like legacy MCI).
+	 */
+	static Map<String, String> buildPatientSearchMap(PatientSearchParam param) {
+		if (param == null) {
+			throw new IllegalArgumentException("PatientSearchParam is required");
+		}
+		Map<String, String> m = new LinkedHashMap<>();
+		if (param.getIdentifiers() != null) {
+			m.put("identifier", param.getIdentifiers());
+		}
+		if (param.getGender() != null) {
+			m.put("gender", param.getGender());
+		}
+		if (param.getBirthdate() != null) {
+			m.put("birthdate", param.getBirthdate());
+		}
+		if (param.getFamily() != null) {
+			m.put("family", param.getFamily());
+		}
+		if (param.getGiven() != null) {
+			m.put("given", param.getGiven());
+		}
+		String telecom = param.getTelecom() != null ? param.getTelecom() : param.getPhone();
+		if (telecom != null) {
+			m.put("telecom", telecom);
+		}
+		if (param.getId() != null) {
+			m.put("_id", param.getId());
+		}
+		if (m.isEmpty()) {
+			throw new IllegalArgumentException("At least one Patient search criterion is required");
+		}
+		return m;
 	}
 
 	private List<SearchPateintDTO> generatePatient(Bundle originalTasksBundle) {
@@ -72,7 +96,6 @@ public class PatientSearchService {
 
 			patient.setBirthdate(patientResource.getBirthDate().toInstant());
 			patient.setNames(theNames);
-			// patient.setIdentifiers(r.getIdentifier());
 			patient.setGender(patientResource.getGender().name());
 			List<Address> addresses = patientResource.getAddress();
 			List<PatientAddress> thePatientAddresses = generateAddress(addresses);
@@ -92,7 +115,9 @@ public class PatientSearchService {
 
 		for (Identifier identifier : identifiers) {
 			org.ih.patient.data.exchange.dto.Identifier theIdentifier = new org.ih.patient.data.exchange.dto.Identifier();
-			theIdentifier.setText(identifier.getType().getText());
+			if (identifier.hasType() && identifier.getType().hasText()) {
+				theIdentifier.setText(identifier.getType().getText());
+			}
 			theIdentifier.setValue(identifier.getValue());
 			theIdentifiers.add(theIdentifier);
 		}

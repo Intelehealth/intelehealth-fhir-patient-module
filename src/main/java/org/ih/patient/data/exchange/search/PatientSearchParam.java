@@ -6,6 +6,8 @@ public class PatientSearchParam {
 	private String given;
 	private String birthdate;
 	private String gender;
+	/** FHIR {@code telecom} search parameter (phone/email token). */
+	private String telecom;
 	private String phone;
 	private String id;
 	private String patient;
@@ -50,6 +52,14 @@ public class PatientSearchParam {
 		this.gender = gender;
 	}
 
+	public String getTelecom() {
+		return telecom;
+	}
+
+	public void setTelecom(String telecom) {
+		this.telecom = telecom;
+	}
+
 	public String getPhone() {
 		return phone;
 	}
@@ -78,7 +88,7 @@ public class PatientSearchParam {
 	public String toString() {
 		return "PatientSearchParam [identifiers=" + identifiers + ", family="
 				+ family + ", given=" + given + ", birthdate=" + birthdate
-				+ ", gender=" + gender + ", phone=" + phone + "]";
+				+ ", gender=" + gender + ", telecom=" + telecom + ", phone=" + phone + ", id=" + id + "]";
 	}
 
 }

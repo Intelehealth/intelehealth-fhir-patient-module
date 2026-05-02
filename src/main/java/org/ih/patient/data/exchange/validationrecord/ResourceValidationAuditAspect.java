@@ -28,7 +28,7 @@ public class ResourceValidationAuditAspect {
 	@Autowired
 	private FhirResourceValidationRecordService validationRecordService;
 
-	@Around("execution(public * org.ih.patient.data.exchange.scheduler.DataSendToFHIR.sendFHIRBundle(org.hl7.fhir.r4.model.Bundle, java.lang.String))")
+	@Around("(execution(public * org.ih.patient.data.exchange.scheduler.DataSendToFHIR.sendFHIRBundle(org.hl7.fhir.r4.model.Bundle, java.lang.String)) || execution(public * org.ih.patient.data.exchange.scheduler.DataSendToFHIR.sendFHIRBundle(org.hl7.fhir.r4.model.Bundle, java.lang.String, boolean)))")
 	public Object aroundSendFhirBundle(ProceedingJoinPoint joinPoint) throws Throwable {
 		Bundle bundle = (Bundle) joinPoint.getArgs()[0];
 		String resourceType = (String) joinPoint.getArgs()[1];
