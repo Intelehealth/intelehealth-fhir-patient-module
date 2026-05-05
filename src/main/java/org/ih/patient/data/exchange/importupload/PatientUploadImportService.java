@@ -1,18 +1,24 @@
 package org.ih.patient.data.exchange.importupload;
 
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.BooleanType;
 import org.hl7.fhir.r4.model.Extension;
+import org.hl7.fhir.r4.model.ContactPoint;
+import org.hl7.fhir.r4.model.HumanName;
 import org.hl7.fhir.r4.model.Identifier;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.Reference;
 import org.hl7.fhir.r4.model.Resource;
 import org.ih.patient.data.exchange.config.FhirConfig;
+import org.ih.patient.data.exchange.param.ReuestParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -40,13 +46,14 @@ public class PatientUploadImportService {
 	@Autowired
 	private FhirConfig fhirConfig;
 
-	public PatientUploadImportResponse importPatientFile(MultipartFile file) throws Exception {
+	public PatientUploadImportResponse importPatientFile(MultipartFile file, String locationUuid) throws Exception {
 		if (file == null || file.isEmpty()) {
 			throw new IllegalArgumentException("File is empty");
 		}
 
 		String content = new String(file.getBytes(), StandardCharsets.UTF_8);
 		List<Patient> patients = parsePatients(content);
+		String effectiveLocationUuid = resolveIdentifierLocationUuid(locationUuid);
 
 		PatientUploadImportResponse response = new PatientUploadImportResponse();
 		response.setTotal(patients.size());
@@ -56,10 +63,14 @@ public class PatientUploadImportService {
 			item.setInputId(patient.getIdElement() != null ? patient.getIdElement().getIdPart() : null);
 			try {
 				ensurePreferredOpenEmiIdentifier(patient);
-				ensureIdentifierLocation(patient);
+				ensureIdentifierLocation(patient, effectiveLocationUuid);
 				if (existsByIdentifier(patient)) {
 					item.setStatus("SKIPPED");
 					item.setMessage("Patient already exists by identifier");
+					response.setSkipped(response.getSkipped() + 1);
+				} else if (existsByDemographics(patient)) {
+					item.setStatus("SKIPPED");
+					item.setMessage("Patient already exists (same family, given, gender, telecom, birth date)");
 					response.setSkipped(response.getSkipped() + 1);
 				} else {
 					patient.setId((String) null);
@@ -98,7 +109,14 @@ public class PatientUploadImportService {
 		throw new IllegalArgumentException("Unsupported resource type. Upload Patient or Bundle JSON.");
 	}
 
-	private void ensureIdentifierLocation(Patient patient) {
+	private String resolveIdentifierLocationUuid(String locationUuid) {
+		if (StringUtils.isNotBlank(locationUuid)) {
+			return locationUuid.trim();
+		}
+		return OPENMRS_DEFAULT_IDENTIFIER_LOCATION_UUID;
+	}
+
+	private void ensureIdentifierLocation(Patient patient, String locationUuidForExtension) {
 		if (patient == null || patient.getIdentifier() == null) {
 			return;
 		}
@@ -110,7 +128,7 @@ public class PatientUploadImportService {
 			}
 			Extension locationExtension = new Extension();
 			locationExtension.setUrl(OPENMRS_IDENTIFIER_LOCATION_EXTENSION_URL);
-			locationExtension.setValue(new Reference("Location/" + OPENMRS_DEFAULT_IDENTIFIER_LOCATION_UUID));
+			locationExtension.setValue(new Reference("Location/" + locationUuidForExtension));
 			identifier.getExtension().add(locationExtension);
 		}
 	}
@@ -178,5 +196,108 @@ public class PatientUploadImportService {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * When family, given, gender, telecom, and birth date are all present, searches the local OpenMRS
+	 * FHIR store and skips create if a patient matches all of those fields. Does not alter
+	 * {@link #existsByIdentifier(Patient)} behavior.
+	 * <p>
+	 * The server query uses only {@code birthdate}, {@code family}, and {@code _count}: OpenMRS FHIR2
+	 * returns HTTP 400 for compound searches that include {@code telecom} (and similar multi-param
+	 * combinations). Given, gender, and telecom are matched only in {@link #demographicsEqual}.
+	 */
+	private boolean existsByDemographics(Patient patient) {
+		if (!hasAllDemographicsForDuplicateCheck(patient)) {
+			return false;
+		}
+		Map<String, String> query = buildLocalDemographicSearchMap(patient);
+		if (query.isEmpty()) {
+			return false;
+		}
+		String searchParamString = ReuestParam.toQueryParam(query);
+		Bundle result = fhirConfig.getLocalOpenMRSFhirContext().search()
+				.byUrl("Patient?" + searchParamString)
+				.returnBundle(Bundle.class)
+				.execute();
+		if (result == null || !result.hasEntry()) {
+			return false;
+		}
+		for (Bundle.BundleEntryComponent entry : result.getEntry()) {
+			if (entry.getResource() instanceof Patient) {
+				if (demographicsEqual(patient, (Patient) entry.getResource())) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static boolean hasAllDemographicsForDuplicateCheck(Patient patient) {
+		if (patient == null || !patient.hasBirthDate() || !patient.hasGender() || !patient.hasName()) {
+			return false;
+		}
+		HumanName name = patient.getNameFirstRep();
+		if (name == null || StringUtils.isBlank(name.getFamily())) {
+			return false;
+		}
+		if (StringUtils.isBlank(name.getGivenAsSingleString())) {
+			return false;
+		}
+		if (!patient.hasTelecom() || patient.getTelecom().isEmpty()
+				|| StringUtils.isBlank(patient.getTelecom().get(0).getValue())) {
+			return false;
+		}
+		return true;
+	}
+
+	private static Map<String, String> buildLocalDemographicSearchMap(Patient patient) {
+		Map<String, String> m = new LinkedHashMap<>();
+		HumanName name = patient.getNameFirstRep();
+		m.put("birthdate", new SimpleDateFormat("yyyy-MM-dd").format(patient.getBirthDate()));
+		m.put("family", name.getFamily().trim());
+		m.put("_count", "50");
+		return m;
+	}
+
+	private static boolean demographicsEqual(Patient incoming, Patient found) {
+		if (!hasAllDemographicsForDuplicateCheck(incoming) || found == null || !found.hasBirthDate()
+				|| !found.hasGender() || !found.hasName()) {
+			return false;
+		}
+		HumanName inName = incoming.getNameFirstRep();
+		HumanName fnName = found.getNameFirstRep();
+		if (!StringUtils.equalsIgnoreCase(StringUtils.trimToEmpty(inName.getFamily()),
+				StringUtils.trimToEmpty(fnName.getFamily()))) {
+			return false;
+		}
+		if (!StringUtils.equalsIgnoreCase(StringUtils.trimToEmpty(inName.getGivenAsSingleString()),
+				StringUtils.trimToEmpty(fnName.getGivenAsSingleString()))) {
+			return false;
+		}
+		if (incoming.getGender() != found.getGender()) {
+			return false;
+		}
+		String inDob = new SimpleDateFormat("yyyy-MM-dd").format(incoming.getBirthDate());
+		String fdDob = new SimpleDateFormat("yyyy-MM-dd").format(found.getBirthDate());
+		if (!StringUtils.equals(inDob, fdDob)) {
+			return false;
+		}
+		String inTel = normalizeTelecom(incoming.getTelecom().get(0).getValue());
+		if (found.hasTelecom()) {
+			for (ContactPoint cp : found.getTelecom()) {
+				if (cp.getValue() != null && inTel.equals(normalizeTelecom(cp.getValue()))) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static String normalizeTelecom(String raw) {
+		if (raw == null) {
+			return "";
+		}
+		return raw.replaceAll("\\D", "");
 	}
 }

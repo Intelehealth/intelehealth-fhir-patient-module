@@ -139,6 +139,7 @@ public class PatientRestController {
 		if (body.getResolvedBy() == null || body.getResolvedBy().trim().isEmpty()) {
 			return ResponseEntity.badRequest().body(errorBody("resolvedBy is required"));
 		}
+		System.err.println("ok");
 		try {
 			localPatientMpiUpdateService.applyMpiIdentifierToLocalPatient(body.getPatientUuid().trim(),
 					body.getMpiIdentifierValue().trim());
@@ -160,6 +161,7 @@ public class PatientRestController {
 			ok.put("mpiIdentifierValue", body.getMpiIdentifierValue().trim());
 			return ResponseEntity.ok(ok);
 		} catch (LocalMpiAlreadySetException ex) {
+			ex.printStackTrace();
 			Map<String, Object> skipped = new LinkedHashMap<>();
 			skipped.put("status", "skipped");
 			skipped.put("patientUuid", body.getPatientUuid().trim());
