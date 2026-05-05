@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.hl7.fhir.common.hapi.validation.support.InMemoryTerminologyServerValidationSupport;
@@ -21,12 +22,14 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Address;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.Bundle.BundleEntryComponent;
+import org.hl7.fhir.r4.model.Bundle.BundleEntryResponseComponent;
 import org.hl7.fhir.r4.model.CodeableConcept;
 import org.hl7.fhir.r4.model.ContactPoint;
 import org.hl7.fhir.r4.model.ContactPoint.ContactPointSystem;
 import org.hl7.fhir.r4.model.Coding;
 import org.hl7.fhir.r4.model.Extension;
 import org.hl7.fhir.r4.model.Identifier;
+import org.hl7.fhir.r4.model.Identifier.IdentifierUse;
 import org.hl7.fhir.r4.model.Meta;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.Reference;
@@ -81,6 +84,7 @@ public class DataSendToFHIR extends IHConstant {
 	private static final Logger LOGGER = LoggerFactory.getLogger(DataSendToFHIR.class);
 	private static final String OPENMRS_ID_TYPE_TEXT = "OpenMRS ID";
 	private static final String MPI_TYPE_TEXT = "MPI";
+	private static final String V2_0203_SYSTEM = "http://terminology.hl7.org/CodeSystem/v2-0203";
 	private static final String OPENMRS_IDENTIFIER_LOCATION_EXTENSION_URL = "http://fhir.openmrs.org/ext/patient/identifier#location";
 	private static final String OPENMRS_DEFAULT_IDENTIFIER_LOCATION_UUID = "8d6c993e-c2cc-11de-8d13-0010c6dffd0f";
 	private static final Set<String> ALLOWED_PATIENT_EXTENSION_URLS = new HashSet<>(Arrays.asList(
@@ -354,7 +358,7 @@ public class DataSendToFHIR extends IHConstant {
 				}
 			} else {
 				LOGGER.info(
-						"Central MPI duplicate search skipped for patient uuid={} (operator force-sync); proceeding to MCI",
+						"Central MPI duplicate search skipped for patient uuid={} (operator force-sync); proceeding to central FHIR",
 						localPatientUUID);
 			}
 
@@ -362,7 +366,7 @@ public class DataSendToFHIR extends IHConstant {
 			log.setResourceName(resourceType);
 			log.setResourceUuid(localPatientUUID);
 			log.setRequest(payload);
-			log.setRequestUrl(mciURL + "rest/v1/patient/save");
+			log.setRequestUrl(opencrOpenhimURL + "/Patient");
 
 			DataExchangeAuditLog uLog = dataExchangeService.save(log);
 
@@ -378,12 +382,11 @@ public class DataSendToFHIR extends IHConstant {
 			 * "rest/v1/patient/save", firFhirConfig.getOpenMRSCredentials()[0],
 			 * firFhirConfig.getOpenMRSCredentials()[1], payload);
 			 */
-			FhirResponse res = HttpWebClient.postWithBasicAuth(mciURL, "rest/v1/patient/save",
-					"openmrs", "Admin123", payload);
+			FhirResponse res = sendPatientToCentral(localPatient);
 
 			uLog.setResponse(res.getResponse());
 			uLog.setResponseStatus(res.getStatusCode());
-			if (res.getStatusCode().equals("200")) {
+			if ("200".equals(res.getStatusCode())) {
 				Bundle remoteBundle = fhirContext.newJsonParser().parseResource(Bundle.class, res.getResponse());
 				System.err.println("Response from central fhir: " + res.getResponse());
 				syncPatientToLocal(remoteBundle, localPatient);
@@ -446,6 +449,173 @@ public class DataSendToFHIR extends IHConstant {
 		} else {
 			System.err.println("Local patient Already Have MPI identifier, Nothing to Update");
 		}
+	}
+
+	/**
+	 * Direct OpenCR patient write (without MCI application-layer hop):
+	 * <ul>
+	 * <li>If patient already has MPI identifier text -> PUT Patient/{mpiId}</li>
+	 * <li>If patient has no MPI identifier -> POST Patient (single call), then mirror returned id as MPI
+	 * for local OpenMRS update payload only</li>
+	 * </ul>
+	 */
+	private FhirResponse sendPatientToCentral(Patient sourcePatient) {
+		FhirResponse response = new FhirResponse();
+		try {
+			Patient patient = sourcePatient.copy();
+			normalizePatientForLatestIg(patient);
+			normalizeIdentifierStandards(patient);
+
+			String existingMpi = getMpiFromPatient(patient);
+			if (existingMpi != null) {
+				Bundle remoteBundle = putPatientWithMpiId(patient, existingMpi);
+				response.setStatusCode("200");
+				response.setResponse(fhirContext.newJsonParser().encodeResourceToString(remoteBundle));
+				response.setMessage("Patient updated in central FHIR using MPI id");
+				return response;
+			}
+
+			Bundle createResponse = postCreatePatient(patient);
+			String createdMpi = extractResponseId(createResponse);
+			if (createdMpi == null || createdMpi.trim().isEmpty()) {
+				response.setStatusCode("502");
+				response.setMessage("Patient create succeeded but MPI id was not returned by central FHIR");
+				response.setResponse(fhirContext.newJsonParser().encodeResourceToString(createResponse));
+				return response;
+			}
+			Bundle mirroredBundle = buildMirroredCreatedPatientBundle(patient, createdMpi.trim());
+			response.setStatusCode("200");
+			response.setResponse(fhirContext.newJsonParser().encodeResourceToString(mirroredBundle));
+			response.setMessage("Patient created in central FHIR");
+			return response;
+		}
+		catch (Exception e) {
+			LOGGER.error("Central patient write failed: {}", e.getMessage(), e);
+			response.setStatusCode("500");
+			response.setMessage(e.getMessage());
+			response.setResponse("");
+			return response;
+		}
+	}
+
+	private Bundle postCreatePatient(Patient patient) {
+		Bundle createTransaction = new Bundle();
+		createTransaction.setType(Bundle.BundleType.TRANSACTION);
+		createTransaction.addEntry().setResource(patient).getRequest().setMethod(Bundle.HTTPVerb.POST).setUrl("Patient");
+		return firFhirConfig.getOpenCRFhirContext().transaction().withBundle(createTransaction).execute();
+	}
+
+	private Bundle putPatientWithMpiId(Patient patient, String mpiId) {
+		Patient toUpdate = patient.copy();
+		toUpdate.setId(mpiId);
+		Bundle updateTransaction = new Bundle();
+		updateTransaction.setType(Bundle.BundleType.TRANSACTION);
+		updateTransaction.addEntry().setResource(toUpdate).getRequest().setMethod(Bundle.HTTPVerb.PUT)
+				.setUrl("Patient/" + mpiId);
+		firFhirConfig.getOpenCRFhirContext().transaction().withBundle(updateTransaction).execute();
+		return singlePatientBundle(toUpdate);
+	}
+
+	private Bundle buildMirroredCreatedPatientBundle(Patient patient, String mpiId) {
+		Patient mirrored = patient.copy();
+		mirrored.setId(mpiId);
+		if (!hasMPI(mirrored)) {
+			Identifier mpiIdentifier = buildMpiIdentifierFromPatient(patient, mpiId);
+			if (mpiIdentifier != null) {
+				mirrored.addIdentifier(mpiIdentifier);
+			}
+		}
+		normalizeIdentifierStandards(mirrored);
+		return singlePatientBundle(mirrored);
+	}
+
+	private Bundle singlePatientBundle(Patient patient) {
+		Bundle bundle = new Bundle();
+		bundle.setType(Bundle.BundleType.COLLECTION);
+		bundle.addEntry().setResource(patient);
+		return bundle;
+	}
+
+	private Identifier buildMpiIdentifierFromPatient(Patient sourcePatient, String mpiId) {
+		if (sourcePatient != null && sourcePatient.hasIdentifier()) {
+			for (Identifier identifier : sourcePatient.getIdentifier()) {
+				Identifier mpiIdentifier = identifier.copy();
+				mpiIdentifier.setId(UUID.randomUUID().toString());
+				mpiIdentifier.setValue(mpiId);
+				mpiIdentifier.setUse(IdentifierUse.OFFICIAL);
+				if (!mpiIdentifier.hasType()) {
+					mpiIdentifier.setType(new CodeableConcept());
+				}
+				mpiIdentifier.getType().setText(globalIdentifierName);
+				mpiIdentifier.setSystem(centralFhirURL + "/StructureDefinition/MPI");
+				mpiIdentifier.getType().setCoding(new ArrayList<>());
+				mpiIdentifier.getType().addCoding().setSystem(V2_0203_SYSTEM).setCode("MR");
+				return mpiIdentifier;
+			}
+		}
+		Identifier mpi = new Identifier();
+		mpi.setId(UUID.randomUUID().toString());
+		mpi.setUse(IdentifierUse.OFFICIAL);
+		mpi.setValue(mpiId);
+		mpi.setSystem(centralFhirURL + "/StructureDefinition/MPI");
+		CodeableConcept type = new CodeableConcept();
+		type.setText(globalIdentifierName);
+		type.addCoding().setSystem(V2_0203_SYSTEM).setCode("MR");
+		mpi.setType(type);
+		return mpi;
+	}
+
+	private String getMpiFromPatient(Patient patient) {
+		if (patient == null || !patient.hasIdentifier()) {
+			return null;
+		}
+		for (Identifier identifier : patient.getIdentifier()) {
+			if (!identifier.hasType() || !identifier.getType().hasText()) {
+				continue;
+			}
+			String typeText = identifier.getType().getText();
+			if ((globalIdentifierName.equalsIgnoreCase(typeText) || MPI_TYPE_TEXT.equalsIgnoreCase(typeText))
+					&& identifier.hasValue()) {
+				return identifier.getValue();
+			}
+		}
+		return null;
+	}
+
+	private void normalizeIdentifierStandards(Patient patient) {
+		for (Identifier identifier : patient.getIdentifier()) {
+			String typeText = identifier.hasType() ? identifier.getType().getText() : null;
+			if (typeText != null && typeText.equalsIgnoreCase(OPENMRS_ID_TYPE_TEXT)) {
+				identifier.setSystem(centralFhirURL + "/StructureDefinition/OpenMRS-ID");
+			}
+			else if (typeText != null && (typeText.equalsIgnoreCase(MPI_TYPE_TEXT)
+					|| typeText.equalsIgnoreCase(globalIdentifierName))) {
+				identifier.setSystem(centralFhirURL + "/StructureDefinition/MPI");
+			}
+			if (!identifier.hasType()) {
+				identifier.setType(new CodeableConcept());
+			}
+			identifier.getType().setCoding(new ArrayList<>());
+			identifier.getType().addCoding().setSystem(V2_0203_SYSTEM).setCode("MR");
+		}
+	}
+
+	private void normalizePatientForLatestIg(Patient patient) {
+		patient.setLanguage(null);
+		patient.setText(null);
+		patient.getContained().clear();
+	}
+
+	private String extractResponseId(Bundle bundle) {
+		if (bundle == null || !bundle.hasEntry()) {
+			return null;
+		}
+		BundleEntryResponseComponent response = bundle.getEntryFirstRep().getResponse();
+		if (response == null || response.getLocation() == null) {
+			return null;
+		}
+		String[] parts = response.getLocation().split("/");
+		return parts.length > 1 ? parts[1] : null;
 	}
 	
 	private String extractResourceId(Bundle bundle) {
